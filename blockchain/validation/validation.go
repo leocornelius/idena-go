@@ -355,17 +355,9 @@ func validateSubmitFlipTx(appState *appstate.AppState, tx *types.Transaction, tx
 		return InvalidPayload
 	}
 
-	// pair index should be less than total words count
-	if identity.GetTotalWordPairsCount() <= int(attachment.Pair) && sender != god {
-		return InvalidPayload
-	}
-
 	for _, flip := range identity.Flips {
 		if bytes.Compare(flip.Cid, attachment.Cid) == 0 {
 			return DuplicatedFlip
-		}
-		if flip.Pair == attachment.Pair {
-			return DuplicatedFlipPair
 		}
 	}
 
