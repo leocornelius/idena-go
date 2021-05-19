@@ -35,6 +35,7 @@ require (
 	github.com/ipfs/interface-go-ipfs-core v0.4.0
 	github.com/klauspost/compress v1.11.12
 	github.com/libp2p/go-libp2p-core v0.8.5
+	github.com/libp2p/go-libp2p-pubsub v0.4.1
 	github.com/libp2p/go-msgio v0.0.6
 	github.com/libp2p/go-sockaddr v0.1.0 // indirect
 	github.com/libp2p/go-yamux v1.4.1

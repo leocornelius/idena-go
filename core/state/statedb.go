@@ -613,7 +613,6 @@ func (s *StateDB) deleteStateDelegationSwitchObject(stateObject *stateDelegation
 	s.tree.Remove(StateDbKeys.DelegationSwitchKey())
 }
 
-
 func (s *StateDB) deleteStateDelayedOfflinePenaltyObject(stateObject *stateDelayedOfflinePenalties) {
 	stateObject.deleted = true
 
@@ -749,7 +748,6 @@ func (s *StateDB) getStateDelegationSwitch() (stateObject *stateDelegationSwitch
 	s.setStateDelegationSwitchObject(obj)
 	return obj
 }
-
 
 func (s *StateDB) getStateDelayedOfflinePenalty() (stateObject *stateDelayedOfflinePenalties) {
 	// Prefer 'live' objects.
@@ -1548,8 +1546,16 @@ func (s *StateDB) RemoveDelayedOfflinePenalty(addr common.Address) {
 	s.GetOrNewDelayedOfflinePenaltyObject().Remove(addr)
 }
 
-func (s *StateDB) ShardId(address common.Address) common.ShardId{
+func (s *StateDB) ShardId(address common.Address) common.ShardId {
 	return s.GetOrNewIdentityObject(address).ShardId()
+}
+
+func (s *StateDB) ShardsNum() uint32 {
+	num := s.GetOrNewGlobalObject().ShardsNum()
+	if num == 0 {
+		num++
+	}
+	return num
 }
 
 type readCloser struct {
