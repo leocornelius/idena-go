@@ -1,7 +1,7 @@
 module github.com/idena-network/idena-go
 
 require (
-	github.com/RoaringBitmap/roaring v0.5.5
+	github.com/RoaringBitmap/roaring v0.7.1
 	github.com/aristanetworks/goarista v0.0.0-20190704150520-f44d68189fd7
 	github.com/awnumar/memguard v0.22.2
 	github.com/cespare/cp v1.1.1
@@ -23,7 +23,7 @@ require (
 	github.com/ipfs/go-filestore v0.0.3
 	github.com/ipfs/go-ipfs v0.8.0
 	github.com/ipfs/go-ipfs-blockstore v0.1.4
-	github.com/ipfs/go-ipfs-config v0.12.0
+	github.com/ipfs/go-ipfs-config v0.14.0
 	github.com/ipfs/go-ipfs-exchange-offline v0.0.1
 	github.com/ipfs/go-ipfs-files v0.0.8
 	github.com/ipfs/go-ipfs-pinner v0.1.1
@@ -56,6 +56,7 @@ require (
 	github.com/ulikunitz/xz v0.5.7 // indirect
 	github.com/urfave/cli v1.22.5
 	github.com/whyrusleeping/go-logging v0.0.1
+	github.com/willf/bitset v1.1.10 // indirect
 	github.com/willf/bloom v2.0.3+incompatible
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83
