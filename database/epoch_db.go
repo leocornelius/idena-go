@@ -1,6 +1,8 @@
 package database
 
 import (
+	"time"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/idena-network/idena-go/blockchain/types"
 	"github.com/idena-network/idena-go/common"
@@ -8,7 +10,6 @@ import (
 	"github.com/idena-network/idena-go/log"
 	models "github.com/idena-network/idena-go/protobuf"
 	dbm "github.com/tendermint/tm-db"
-	"time"
 )
 
 var (
@@ -70,6 +71,7 @@ func (edb *EpochDb) WriteAnswerHash(address common.Address, hash common.Hash, ti
 		Hash:      hash[:],
 		Timestamp: timestamp.Unix(),
 	}
+	log.Info("writing answer hash", "hash", hash[:], "address", address)
 	data, _ := proto.Marshal(protoAnswer)
 	assertNoError(edb.db.Set(append(AnswerHashPrefix, address.Bytes()...), data))
 }
@@ -290,7 +292,6 @@ func (edb *EpochDb) WritePublicFlipKey(key *types.PublicFlipKey) {
 	assertNoError(err)
 }
 
-
 func (edb *EpochDb) ReadPublicFlipKeys() []*types.PublicFlipKey {
 	it, err := edb.db.Iterator(append(PublicFlipKeyPrefix, common.MinHash[:]...), append(PublicFlipKeyPrefix, common.MaxHash...))
 	assertNoError(err)
@@ -312,7 +313,6 @@ func (edb *EpochDb) WritePrivateFlipKey(key *types.PrivateFlipKeysPackage) {
 	assertNoError(err)
 }
 
-
 func (edb *EpochDb) ReadPrivateFlipKeys() []*types.PrivateFlipKeysPackage {
 	it, err := edb.db.Iterator(append(PrivateFlipKeyPrefix, common.MinHash128[:]...), append(PrivateFlipKeyPrefix, common.MaxHash128...))
 	assertNoError(err)
@@ -326,5 +326,3 @@ func (edb *EpochDb) ReadPrivateFlipKeys() []*types.PrivateFlipKeysPackage {
 	}
 	return result
 }
-
-

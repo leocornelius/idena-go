@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/deckarep/golang-set"
+	"math/rand"
+	"sync"
+	"time"
+
+	mapset "github.com/deckarep/golang-set"
 	"github.com/idena-network/idena-go/blockchain"
 	"github.com/idena-network/idena-go/blockchain/attachments"
 	"github.com/idena-network/idena-go/blockchain/types"
@@ -32,9 +36,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
 	dbm "github.com/tendermint/tm-db"
-	"math/rand"
-	"sync"
-	"time"
 )
 
 const (
@@ -261,6 +262,85 @@ func (vc *ValidationCeremony) SubmitShortAnswers(answers *types.Answers) (common
 	}
 
 	return h, err
+}
+
+func (vc *ValidationCeremony) FormShortAnswersHash(answers *types.Answers, address common.Address) types.Transaction {
+	vc.mutex.Lock()
+	salt := getShortAnswersSalt(vc.epoch, vc.secStore)
+	log.Info("Short salt got", "salt", salt)
+	var hash = crypto.Hash(append(answers.Bytes(), salt[:]...))
+	log.Info("Hash created", "hash", hash, "length", len(hash))
+
+	vc.mutex.Unlock()
+	// create the short answers hash txn
+	tx := blockchain.BuildTx(vc.appState, address, nil, types.SubmitAnswersHashTx, decimal.Zero, decimal.Zero, decimal.Zero, 0, 0, hash[:])
+	return *tx
+}
+
+func (vc *ValidationCeremony) FormShortAnswers(answers *types.Answers, address common.Address) types.Transaction {
+	vc.mutex.Lock()
+	// create the short answers hash txn
+	h, err := vrf.HashFromProof(vc.flipWordsInfo.proof)
+	if err != nil {
+		return types.Transaction{}
+	}
+	tx := blockchain.BuildTx(vc.appState, address, nil, types.SubmitShortAnswersTx, decimal.Zero, decimal.Zero, decimal.Zero, 0, 0, attachments.CreateShortAnswerAttachment(answers.Bytes(), getWordsRnd(h)))
+	vc.mutex.Unlock()
+	return *tx
+}
+
+func (vc *ValidationCeremony) FormLongAnswersBEM() types.Transaction {
+	shortSessionStart, shortSessionEnd := vc.appState.EvidenceMap.GetShortSessionBeginningTime(), vc.appState.EvidenceMap.GetShortSessionEndingTime()
+
+	additional := vc.epochDb.GetConfirmedRespondents(shortSessionStart, shortSessionEnd)
+
+	candidates := vc.getCandidatesAddresses()
+
+	bitmap := vc.appState.EvidenceMap.CalculateBitmap(candidates, additional, vc.appState.State.GetRequiredFlips)
+
+	if len(candidates) < 100 {
+		var inMemory string
+		var final string
+		for i, c := range candidates {
+			if vc.appState.EvidenceMap.ContainsAnswer(c) && (vc.appState.EvidenceMap.ContainsKey(c) || vc.appState.State.GetRequiredFlips(c) <= 0) {
+				log.Info("Present", "candidate", c)
+				inMemory += "1"
+			} else {
+				log.Error("Not present", "candidate", c)
+				inMemory += "0"
+			}
+			if bitmap.Contains(uint32(i)) {
+				log.Info("Bit map present", "candidate", c)
+				final += "1"
+				log.Info("Present", "candidate", c)
+			} else {
+				log.Info("Bit map not present", "candidate", c)
+				final += "0"
+			}
+		}
+		vc.logInfoWithInteraction("In memory evidence map", "map", inMemory)
+		vc.logInfoWithInteraction("Final evidence map", "map", final)
+	}
+
+	buf := new(bytes.Buffer)
+
+	bitmap.WriteTo(buf)
+
+	if _, err := vc.sendTx(types.EvidenceTx, buf.Bytes()); err == nil {
+		vc.evidenceSent = true
+	} else {
+		vc.log.Error("cannot send evidence tx", "err", err)
+	}
+	return types.Transaction{}
+}
+
+func (vc *ValidationCeremony) FormLongAnswers(answers *types.Answers, address common.Address) types.Transaction {
+	key := vc.flipper.GetFlipPublicEncryptionKey()
+	salt := getShortAnswersSalt(vc.epoch, vc.secStore)
+
+	// create the short answers hash txn
+	return *blockchain.BuildTx(vc.appState, address, nil, types.SubmitLongAnswersTx, decimal.Zero, decimal.Zero, decimal.Zero, 0, 0, attachments.CreateLongAnswerAttachment(answers.Bytes(), vc.flipWordsInfo.proof, salt, key))
+
 }
 
 func (vc *ValidationCeremony) SubmitLongAnswers(answers *types.Answers) (common.Hash, error) {
@@ -688,18 +768,25 @@ func getFlipsToSolve(self common.Address, participants []*candidate, flipsPerCan
 
 func (vc *ValidationCeremony) processCeremonyTxs(block *types.Block) {
 	for _, tx := range block.Body.Transactions {
+		log.Info("Processing ceremony tx", "hash", tx.Hash().Hex())
 		sender, _ := types.Sender(tx)
 
 		switch tx.Type {
 		case types.SubmitAnswersHashTx:
 			if !vc.epochDb.HasAnswerHash(sender) {
+				log.Info("Added short answers hash from txn", "sender", sender, "txn", tx.Hash().Hex())
 				vc.epochDb.WriteAnswerHash(sender, common.BytesToHash(tx.Payload), time.Now().UTC())
+			} else {
+				log.Error("Already have answers hash", "sender", sender)
 			}
 		case types.SubmitShortAnswersTx:
+			log.Info("Added short answers from txn", "sender", sender, "txn", tx.Hash().Hex())
 			vc.qualification.addAnswers(true, sender, tx.Payload)
 		case types.SubmitLongAnswersTx:
+			log.Info("Added long answers from txn", "sender", sender, "txn", tx.Hash().Hex())
 			vc.qualification.addAnswers(false, sender, tx.Payload)
 		case types.EvidenceTx:
+			log.Info("Added evidence map from txn", "sender", sender, "txn", tx.Hash().Hex())
 			if !vc.epochDb.HasEvidenceMap(sender) {
 				vc.epochDb.WriteEvidenceMap(sender, tx.Payload)
 			}
@@ -720,7 +807,7 @@ func (vc *ValidationCeremony) broadcastShortAnswersTx() {
 	}
 	answers := vc.epochDb.ReadOwnShortAnswersBits()
 	if answers == nil {
-		vc.log.Error("short session answers are missing")
+		vc.log.Error("Local short session answers are missing")
 		return
 	}
 
@@ -743,6 +830,7 @@ func (vc *ValidationCeremony) broadcastEvidenceMap() {
 	}
 
 	if existTx := vc.epochDb.ReadOwnTx(types.SubmitLongAnswersTx); existTx == nil {
+		log.Error("Wont send EM due to missing local long answers txn")
 		return
 	}
 
@@ -904,7 +992,7 @@ func (vc *ValidationCeremony) ApplyNewEpoch(height uint64, appState *appstate.Ap
 		flipsByAuthor,
 		reportersToReward = vc.analyzeAuthors(flipQualification, reportersToReward)
 
-	vc.logInfoWithInteraction("Approved candidates", "cnt", len(approvedCandidates))
+	vc.logInfoWithInteraction("Approved candidates", "count", len(approvedCandidates))
 
 	notApprovedFlips := vc.getNotApprovedFlips(approvedCandidatesSet)
 
@@ -963,6 +1051,7 @@ func (vc *ValidationCeremony) ApplyNewEpoch(height uint64, appState *appstate.Ap
 		}
 
 		epochApplyingValues[addr] = value
+		log.Info("Finished cache value calculation for candidate", "candidiate", addr, "value", value)
 
 		stats.IdentitiesPerAddr[addr] = &statsTypes.IdentityStats{
 			ShortPoint:        shortFlipPoint,
@@ -974,6 +1063,7 @@ func (vc *ValidationCeremony) ApplyNewEpoch(height uint64, appState *appstate.Ap
 			ShortFlipsToSolve: shortFlipsToSolve,
 			LongFlipsToSolve:  longFlipsToSolve,
 		}
+		log.Info("Finished for candidate", "candidate", addr, "stats", stats.IdentitiesPerAddr[addr])
 
 		if value.state.NewbieOrBetter() {
 			intermediateIdentitiesCount++
@@ -982,7 +1072,7 @@ func (vc *ValidationCeremony) ApplyNewEpoch(height uint64, appState *appstate.Ap
 	validationResults.ReportersToRewardByFlip = reportersToReward.getReportersByFlipMap()
 
 	if intermediateIdentitiesCount == 0 {
-		vc.log.Warn("validation failed, nobody is validated, identities remains the same")
+		vc.log.Error("validation failed, nobody is validated, identities remains the same")
 		stats.Failed = true
 		vc.epochApplyingCache[height] = epochApplyingCache{
 			epochApplyingResult: epochApplyingValues,

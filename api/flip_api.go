@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+
 	mapset "github.com/deckarep/golang-set"
 	"github.com/idena-network/idena-go/blockchain/attachments"
 	"github.com/idena-network/idena-go/blockchain/types"
@@ -373,57 +374,87 @@ type FlipAnswer struct {
 }
 
 type SubmitAnswersArgs struct {
-	Answers []FlipAnswer `json:"answers"`
+	Answers []FlipAnswer   `json:"answers"`
+	Address common.Address `json:"address"`
+	BEM     bool           `json:"bem"`
 }
 
 type SubmitAnswersResponse struct {
-	TxHash common.Hash `json:"txHash"`
+	TxLong      hexutil.Bytes `json:"txlong"`
+	TxShortHash hexutil.Bytes `json:"txshorthash"`
+	TxShort     hexutil.Bytes `json:"txshort"`
 }
 
 func (api *FlipApi) SubmitShortAnswers(args SubmitAnswersArgs) (SubmitAnswersResponse, error) {
-	log.Info("short answers submitting request")
-	defer log.Info("short answers submitting response")
+	log.Info("short answers submitting request", "address", args.Address)
+	defer log.Info("short answers submitting response", "address", args.Address)
 
-	if !api.isCeremonyCandidate(api.baseApi.getCurrentCoinbase()) {
-		return SubmitAnswersResponse{}, errors.New("coinbase address is not a ceremony candidate")
-	}
+	flips := api.ceremony.GetShortFlipsToSolve(args.Address)
 
-	flips := api.ceremony.GetShortFlipsToSolve(api.baseApi.getCurrentCoinbase())
+	answers := prepareAnswers(args.Answers, flips, true, args.Address)
+	// return the formed raw txn to be signed and rebroadcast
 
-	answers := prepareAnswers(args.Answers, flips, true)
-
-	hash, err := api.ceremony.SubmitShortAnswers(answers)
-
+	shorthashtxn := api.ceremony.FormShortAnswersHash(answers, args.Address)
+	txn := api.ceremony.FormShortAnswers(answers, args.Address)
+	txn_bytes, err := txn.ToBytes()
 	if err != nil {
-		return SubmitAnswersResponse{}, err
+		return SubmitAnswersResponse{
+			TxShort:     nil,
+			TxLong:      nil,
+			TxShortHash: nil,
+		}, nil
+	} else {
+		shorthashtxnbytes, err := shorthashtxn.ToBytes()
+		if err != nil {
+			return SubmitAnswersResponse{
+				TxShort:     nil,
+				TxLong:      nil,
+				TxShortHash: nil,
+			}, nil
+		}
+		return SubmitAnswersResponse{
+			TxShort:     txn_bytes,
+			TxLong:      nil,
+			TxShortHash: shorthashtxnbytes,
+		}, nil
 	}
 
-	return SubmitAnswersResponse{
-		TxHash: hash,
-	}, nil
 }
 
 func (api *FlipApi) SubmitLongAnswers(args SubmitAnswersArgs) (SubmitAnswersResponse, error) {
-	log.Info("long answers submitting request")
-	defer log.Info("long answers submitting response")
+	log.Info("long answers submitting request", "address", args.Address)
+	if args.BEM {
+		log.Info("BEM request")
+		api.ceremony.FormLongAnswersBEM()
+		return SubmitAnswersResponse{
+			TxShort:     nil,
+			TxLong:      nil,
+			TxShortHash: nil,
+		}, nil
+	} else {
+		defer log.Info("long answers submitting response", "address", args.Address)
 
-	if !api.isCeremonyCandidate(api.baseApi.getCurrentCoinbase()) {
-		return SubmitAnswersResponse{}, errors.New("coinbase address is not a ceremony candidate")
+		flips := api.ceremony.GetShortFlipsToSolve(args.Address)
+
+		answers := prepareAnswers(args.Answers, flips, false, args.Address)
+		// return the formed raw txn to be signed and rebroadcast
+
+		txn := api.ceremony.FormLongAnswers(answers, args.Address)
+
+		txn_bytes, err := txn.ToBytes()
+		if err != nil {
+			return SubmitAnswersResponse{
+				TxShort:     nil,
+				TxLong:      nil,
+				TxShortHash: nil,
+			}, nil
+		}
+		return SubmitAnswersResponse{
+			TxShort:     nil,
+			TxLong:      txn_bytes,
+			TxShortHash: nil,
+		}, nil
 	}
-
-	flips := api.ceremony.GetLongFlipsToSolve(api.baseApi.getCurrentCoinbase())
-
-	answers := prepareAnswers(args.Answers, flips, false)
-
-	hash, err := api.ceremony.SubmitLongAnswers(answers)
-
-	if err != nil {
-		return SubmitAnswersResponse{}, err
-	}
-
-	return SubmitAnswersResponse{
-		TxHash: hash,
-	}, nil
 }
 
 type FlipWordsResponse struct {
@@ -441,7 +472,8 @@ func (api *FlipApi) Words(hash string) (FlipWordsResponse, error) {
 	}, err
 }
 
-func prepareAnswers(answers []FlipAnswer, flips [][]byte, isShort bool) *types.Answers {
+func prepareAnswers(answers []FlipAnswer, flips [][]byte, isShort bool, address common.Address) *types.Answers {
+	log.Debug("Preparing answers", "address", address, "isShort", isShort)
 	findAnswer := func(hash []byte) *FlipAnswer {
 		for _, h := range answers {
 			c, err := cid.Parse(h.Hash)

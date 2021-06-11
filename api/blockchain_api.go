@@ -2,6 +2,9 @@ package api
 
 import (
 	"context"
+	"math/big"
+	"sort"
+
 	"github.com/idena-network/idena-go/blockchain"
 	"github.com/idena-network/idena-go/blockchain/fee"
 	"github.com/idena-network/idena-go/blockchain/types"
@@ -14,8 +17,6 @@ import (
 	"github.com/idena-network/idena-go/rlp"
 	"github.com/ipfs/go-cid"
 	"github.com/shopspring/decimal"
-	"math/big"
-	"sort"
 )
 
 var (
@@ -260,7 +261,6 @@ func (api *BlockchainApi) SendRawTx(ctx context.Context, bytesTx hexutil.Bytes) 
 			tx.UseRlp = true
 		}
 	}
-
 	return api.baseApi.sendInternalTx(ctx, &tx)
 }
 
